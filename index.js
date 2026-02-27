@@ -3,8 +3,15 @@ const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 
 const token = process.env.BOT_TOKEN;
+const domain = process.env.APP_DOMAIN;
+
 if (!token) {
-  console.error("❌ BOT_TOKEN غير موجود");
+  console.error("BOT_TOKEN غير موجود");
+  process.exit(1);
+}
+
+if (!domain) {
+  console.error("APP_DOMAIN غير موجود");
   process.exit(1);
 }
 
@@ -13,30 +20,29 @@ app.use(express.json());
 
 const bot = new TelegramBot(token);
 
-const PORT = process.env.PORT || 3000;
-const DOMAIN = process.env.RAILWAY_PUBLIC_DOMAIN;
+const PORT = process.env.PORT || 8080;
 
-if (!DOMAIN) {
-  console.error("❌ RAILWAY_PUBLIC_DOMAIN غير موجود");
-  process.exit(1);
-}
+/* ========= Webhook Endpoint ========= */
+app.post(`/bot${token}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
 
-const WEBHOOK_URL = `https://${DOMAIN}/bot${token}`;
-
-// ========= أوامر البوت =========
-
+/* ========= القائمة الرئيسية ========= */
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, "مرحباً بك 👋 اختر من القائمة:", {
+  bot.sendMessage(msg.chat.id, "اختر من القائمة 👇", {
     reply_markup: {
       inline_keyboard: [
-        [{ text: "نشر صورة", callback_data: "photo" }],
-        [{ text: "نشر PDF", callback_data: "pdf" }],
-        [{ text: "نشر فيديو", callback_data: "video" }]
+        [{ text: "📷 نشر صورة", callback_data: "photo" }],
+        [{ text: "📄 نشر PDF", callback_data: "pdf" }],
+        [{ text: "🎬 نشر فيديو", callback_data: "video" }],
+        [{ text: "🔗 أزرار ديناميكية", callback_data: "buttons" }]
       ]
     }
   });
 });
 
+/* ========= الأزرار ========= */
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
 
@@ -60,7 +66,9 @@ bot.on("callback_query", async (query) => {
       await bot.sendDocument(
         chatId,
         "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-        { caption: "هذا ملف PDF 📄" }
+        {
+          caption: "هذا ملف PDF 📄"
+        }
       );
     }
 
@@ -72,11 +80,24 @@ bot.on("callback_query", async (query) => {
           caption: "هذا فيديو 🎬",
           reply_markup: {
             inline_keyboard: [
-              [{ text: "فتح الرابط", url: "https://youtube.com" }]
+              [{ text: "يوتيوب", url: "https://youtube.com" }]
             ]
           }
         }
       );
+    }
+
+    if (query.data === "buttons") {
+      await bot.sendMessage(chatId, "مثال أزرار بروابط:", {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "Google", url: "https://google.com" },
+              { text: "YouTube", url: "https://youtube.com" }
+            ]
+          ]
+        }
+      });
     }
 
     await bot.answerCallbackQuery(query.id);
@@ -85,23 +106,17 @@ bot.on("callback_query", async (query) => {
   }
 });
 
-// ========= Webhook Endpoint =========
-
-app.post(`/bot${token}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-// ========= تشغيل السيرفر ثم ضبط webhook =========
-
+/* ========= تشغيل السيرفر وضبط Webhook ========= */
 app.listen(PORT, async () => {
-  console.log("🚀 السيرفر يعمل على المنفذ", PORT);
+  console.log(`السيرفر يعمل على المنفذ ${PORT}`);
+
+  const webhookUrl = `https://${domain}/bot${token}`;
 
   try {
     await bot.deleteWebHook();
-    await bot.setWebHook(WEBHOOK_URL);
-    console.log("✅ Webhook تم ضبطه بنجاح");
+    await bot.setWebHook(webhookUrl);
+    console.log("Webhook تم ضبطه بنجاح");
   } catch (error) {
-    console.error("❌ فشل ضبط Webhook:", error.message);
+    console.error("فشل ضبط Webhook:", error.message);
   }
 });
