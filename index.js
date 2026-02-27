@@ -3,10 +3,11 @@ const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
 
 const token = process.env.BOT_TOKEN;
-const domain = process.env.APP_DOMAIN;
+const adminId = process.env.ADMIN_ID;
+const railwayUrl = process.env.RAILWAY_STATIC_URL;
 
-if (!token || !domain) {
-  console.error("❌ BOT_TOKEN أو APP_DOMAIN غير موجود");
+if (!token || !adminId || !railwayUrl) {
+  console.error("❌ تأكد من المتغيرات BOT_TOKEN + ADMIN_ID");
   process.exit(1);
 }
 
@@ -16,35 +17,42 @@ app.use(express.json());
 const bot = new TelegramBot(token);
 const PORT = process.env.PORT || 8080;
 
-/* =======================
-   Webhook Endpoint
-======================= */
+/* ===== Webhook ===== */
 app.post("/webhook", (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-/* =======================
-   أوامر البداية
-======================= */
+/* ===== التحقق من الأدمن ===== */
+function isAdmin(id) {
+  return id.toString() === adminId.toString();
+}
+
+/* ===== القائمة الرئيسية ===== */
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, "اختر من القائمة 👇", {
+  if (!isAdmin(msg.from.id)) {
+    return bot.sendMessage(msg.chat.id, "❌ غير مصرح لك");
+  }
+
+  bot.sendMessage(msg.chat.id, "لوحة التحكم 👇", {
     reply_markup: {
       inline_keyboard: [
         [{ text: "📷 نشر صورة", callback_data: "photo" }],
         [{ text: "📄 نشر PDF", callback_data: "pdf" }],
         [{ text: "🎬 نشر فيديو", callback_data: "video" }],
-        [{ text: "🔗 أزرار", callback_data: "buttons" }]
+        [{ text: "📢 نشر للقناة", callback_data: "channel" }]
       ]
     }
   });
 });
 
-/* =======================
-   التعامل مع الأزرار
-======================= */
+/* ===== الأزرار ===== */
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
+
+  if (!isAdmin(query.from.id)) {
+    return bot.answerCallbackQuery(query.id, { text: "غير مصرح" });
+  }
 
   try {
 
@@ -53,10 +61,10 @@ bot.on("callback_query", async (query) => {
         chatId,
         "https://via.placeholder.com/600x400",
         {
-          caption: "هذه صورة مع نص 👌",
+          caption: "صورة تجريبية",
           reply_markup: {
             inline_keyboard: [
-              [{ text: "زيارة Google", url: "https://google.com" }]
+              [{ text: "Google", url: "https://google.com" }]
             ]
           }
         }
@@ -67,7 +75,7 @@ bot.on("callback_query", async (query) => {
       await bot.sendDocument(
         chatId,
         "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-        { caption: "هذا ملف PDF 📄" }
+        { caption: "ملف PDF" }
       );
     }
 
@@ -75,50 +83,43 @@ bot.on("callback_query", async (query) => {
       await bot.sendVideo(
         chatId,
         "https://www.w3schools.com/html/mov_bbb.mp4",
-        {
-          caption: "هذا فيديو 🎬",
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "يوتيوب", url: "https://youtube.com" }]
-            ]
-          }
-        }
+        { caption: "فيديو تجريبي" }
       );
     }
 
-    if (query.data === "buttons") {
-      await bot.sendMessage(chatId, "مثال أزرار:", {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "Google", url: "https://google.com" },
-              { text: "YouTube", url: "https://youtube.com" }
-            ]
-          ]
-        }
+    if (query.data === "channel") {
+      await bot.sendMessage(
+        chatId,
+        "أرسل الآن معرف القناة مثل:\n@channelusername"
+      );
+
+      bot.once("message", async (msg) => {
+        const channel = msg.text;
+
+        await bot.sendMessage(channel, "📢 هذا منشور تجريبي من البوت");
+
+        await bot.sendMessage(chatId, "✅ تم النشر في القناة");
       });
     }
 
     await bot.answerCallbackQuery(query.id);
 
-  } catch (error) {
-    console.error("خطأ:", error.message);
+  } catch (err) {
+    console.error("خطأ:", err.message);
   }
 });
 
-/* =======================
-   تشغيل السيرفر وضبط Webhook
-======================= */
+/* ===== تشغيل السيرفر ===== */
 app.listen(PORT, async () => {
-  console.log(`🚀 السيرفر يعمل على المنفذ ${PORT}`);
+  console.log(`🚀 يعمل على المنفذ ${PORT}`);
 
-  const webhookUrl = `https://${domain}/webhook`;
+  const webhookUrl = `https://${railwayUrl}/webhook`;
 
   try {
     await bot.deleteWebHook();
     await bot.setWebHook(webhookUrl);
-    console.log("✅ تم ضبط Webhook بنجاح");
+    console.log("✅ Webhook تم بنجاح");
   } catch (error) {
-    console.error("❌ فشل ضبط Webhook:", error.response?.body || error.message);
+    console.error("❌ فشل Webhook:", error.response?.body || error.message);
   }
 });
