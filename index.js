@@ -1,34 +1,45 @@
-require("dotenv").config();
 const express = require("express");
 const TelegramBot = require("node-telegram-bot-api");
-
-const token = process.env.BOT_TOKEN;
-const adminId = process.env.ADMIN_ID;
-const railwayUrl = process.env.RAILWAY_STATIC_URL;
-
-if (!token || !adminId || !railwayUrl) {
-  console.error("❌ تأكد من المتغيرات BOT_TOKEN + ADMIN_ID");
-  process.exit(1);
-}
 
 const app = express();
 app.use(express.json());
 
+const token = process.env.BOT_TOKEN;
+const adminId = process.env.ADMIN_ID;
+
+if (!token || !adminId) {
+  console.log("❌ تأكد من BOT_TOKEN و ADMIN_ID");
+  process.exit(1);
+}
+
 const bot = new TelegramBot(token);
 const PORT = process.env.PORT || 8080;
+const DOMAIN = process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_PUBLIC_DOMAIN;
 
-/* ===== Webhook ===== */
+if (!DOMAIN) {
+  console.log("❌ الدومين غير موجود");
+  process.exit(1);
+}
+
+const webhookURL = `https://${DOMAIN}/webhook`;
+
+/* ====== Webhook ====== */
 app.post("/webhook", (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-/* ===== التحقق من الأدمن ===== */
+/* ====== فحص السيرفر ====== */
+app.get("/", (req, res) => {
+  res.send("Bot is running");
+});
+
+/* ====== تحقق أدمن ====== */
 function isAdmin(id) {
   return id.toString() === adminId.toString();
 }
 
-/* ===== القائمة الرئيسية ===== */
+/* ====== لوحة التحكم ====== */
 bot.onText(/\/start/, (msg) => {
   if (!isAdmin(msg.from.id)) {
     return bot.sendMessage(msg.chat.id, "❌ غير مصرح لك");
@@ -37,6 +48,7 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id, "لوحة التحكم 👇", {
     reply_markup: {
       inline_keyboard: [
+        [{ text: "📝 نشر نص", callback_data: "text" }],
         [{ text: "📷 نشر صورة", callback_data: "photo" }],
         [{ text: "📄 نشر PDF", callback_data: "pdf" }],
         [{ text: "🎬 نشر فيديو", callback_data: "video" }],
@@ -46,80 +58,76 @@ bot.onText(/\/start/, (msg) => {
   });
 });
 
-/* ===== الأزرار ===== */
+/* ====== التعامل مع الأزرار ====== */
 bot.on("callback_query", async (query) => {
-  const chatId = query.message.chat.id;
-
   if (!isAdmin(query.from.id)) {
     return bot.answerCallbackQuery(query.id, { text: "غير مصرح" });
   }
 
+  const chatId = query.message.chat.id;
+
   try {
 
-    if (query.data === "photo") {
-      await bot.sendPhoto(
-        chatId,
-        "https://via.placeholder.com/600x400",
-        {
-          caption: "صورة تجريبية",
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "Google", url: "https://google.com" }]
-            ]
-          }
-        }
-      );
-    }
-
-    if (query.data === "pdf") {
-      await bot.sendDocument(
-        chatId,
-        "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-        { caption: "ملف PDF" }
-      );
-    }
-
-    if (query.data === "video") {
-      await bot.sendVideo(
-        chatId,
-        "https://www.w3schools.com/html/mov_bbb.mp4",
-        { caption: "فيديو تجريبي" }
-      );
-    }
-
-    if (query.data === "channel") {
-      await bot.sendMessage(
-        chatId,
-        "أرسل الآن معرف القناة مثل:\n@channelusername"
-      );
-
-      bot.once("message", async (msg) => {
-        const channel = msg.text;
-
-        await bot.sendMessage(channel, "📢 هذا منشور تجريبي من البوت");
-
-        await bot.sendMessage(chatId, "✅ تم النشر في القناة");
+    if (query.data === "text") {
+      bot.sendMessage(chatId, "أرسل النص الآن:");
+      bot.once("message", (msg) => {
+        bot.sendMessage(chatId, msg.text);
       });
     }
 
-    await bot.answerCallbackQuery(query.id);
+    if (query.data === "photo") {
+      bot.sendMessage(chatId, "أرسل الصورة الآن:");
+      bot.once("message", (msg) => {
+        if (msg.photo) {
+          const photoId = msg.photo[msg.photo.length - 1].file_id;
+          bot.sendPhoto(chatId, photoId, { caption: "تم النشر" });
+        }
+      });
+    }
+
+    if (query.data === "pdf") {
+      bot.sendMessage(chatId, "أرسل ملف PDF:");
+      bot.once("message", (msg) => {
+        if (msg.document) {
+          bot.sendDocument(chatId, msg.document.file_id);
+        }
+      });
+    }
+
+    if (query.data === "video") {
+      bot.sendMessage(chatId, "أرسل الفيديو:");
+      bot.once("message", (msg) => {
+        if (msg.video) {
+          bot.sendVideo(chatId, msg.video.file_id);
+        }
+      });
+    }
+
+    if (query.data === "channel") {
+      bot.sendMessage(chatId, "أرسل معرف القناة مثل:\n@channelusername");
+      bot.once("message", async (msg) => {
+        const channel = msg.text;
+        await bot.sendMessage(channel, "📢 منشور من البوت");
+        bot.sendMessage(chatId, "✅ تم النشر في القناة");
+      });
+    }
+
+    bot.answerCallbackQuery(query.id);
 
   } catch (err) {
-    console.error("خطأ:", err.message);
+    console.log("خطأ:", err);
   }
 });
 
-/* ===== تشغيل السيرفر ===== */
+/* ====== تشغيل السيرفر وضبط Webhook ====== */
 app.listen(PORT, async () => {
   console.log(`🚀 يعمل على المنفذ ${PORT}`);
 
-  const webhookUrl = `https://${railwayUrl}/webhook`;
-
   try {
     await bot.deleteWebHook();
-    await bot.setWebHook(webhookUrl);
+    await bot.setWebHook(webhookURL);
     console.log("✅ Webhook تم بنجاح");
-  } catch (error) {
-    console.error("❌ فشل Webhook:", error.response?.body || error.message);
+  } catch (err) {
+    console.log("❌ فشل Webhook:", err.response?.body || err);
   }
 });
