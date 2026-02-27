@@ -1,152 +1,89 @@
-require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
+require("dotenv").config();
+const express = require("express");
+const TelegramBot = require("node-telegram-bot-api");
 
 const token = process.env.BOT_TOKEN;
-
 if (!token) {
-    console.error("❌ BOT_TOKEN غير موجود في Environment Variables");
-    process.exit(1);
+  console.error("BOT_TOKEN is missing!");
+  process.exit(1);
 }
 
-const bot = new TelegramBot(token, { polling: true });
+const app = express();
+app.use(express.json());
 
-const channel = "@your_channel_username"; // ضع يوزر القناة
-const ADMIN_ID = 123456789; // ضع Telegram ID الخاص بك
+const bot = new TelegramBot(token);
 
-let userState = {};
-let tempPost = {};
+const PORT = process.env.PORT || 3000;
+const BASE_URL = process.env.RAILWAY_STATIC_URL;
+
+// ===== Webhook Setup =====
+bot.setWebHook(`${BASE_URL}/bot${token}`);
+
+app.post(`/bot${token}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// ====== أوامر البوت ======
 
 bot.onText(/\/start/, (msg) => {
+  bot.sendMessage(msg.chat.id, "مرحباً بك 👋\nاختر من القائمة:", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "نشر صورة", callback_data: "photo" }],
+        [{ text: "نشر PDF", callback_data: "pdf" }],
+        [{ text: "نشر فيديو", callback_data: "video" }],
+      ],
+    },
+  });
+});
 
-    if (msg.from.id !== ADMIN_ID) {
-        return bot.sendMessage(msg.chat.id, "❌ هذا البوت للإدارة فقط.");
-    }
+bot.on("callback_query", async (query) => {
+  const chatId = query.message.chat.id;
 
-    const keyboard = {
+  if (query.data === "photo") {
+    await bot.sendPhoto(
+      chatId,
+      "https://via.placeholder.com/600x400",
+      {
+        caption: "هذه صورة مع نص 👌",
         reply_markup: {
-            inline_keyboard: [
-                [{ text: "📢 نشر نص", callback_data: "text" }],
-                [{ text: "🖼 نشر صورة", callback_data: "photo" }],
-                [{ text: "🎥 نشر فيديو", callback_data: "video" }],
-                [{ text: "📄 نشر PDF", callback_data: "pdf" }]
-            ]
-        }
-    };
+          inline_keyboard: [
+            [{ text: "زيارة الموقع", url: "https://google.com" }],
+          ],
+        },
+      }
+    );
+  }
 
-    bot.sendMessage(msg.chat.id, "اختر نوع المنشور:", keyboard);
+  if (query.data === "pdf") {
+    await bot.sendDocument(
+      chatId,
+      "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
+      {
+        caption: "هذا ملف PDF 📄",
+      }
+    );
+  }
+
+  if (query.data === "video") {
+    await bot.sendVideo(
+      chatId,
+      "https://www.w3schools.com/html/mov_bbb.mp4",
+      {
+        caption: "هذا فيديو 🎬",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "فتح الرابط", url: "https://youtube.com" }],
+          ],
+        },
+      }
+    );
+  }
+
+  bot.answerCallbackQuery(query.id);
 });
 
-bot.on("callback_query", (query) => {
-
-    const userId = query.from.id;
-
-    if (userId !== ADMIN_ID) {
-        return bot.answerCallbackQuery(query.id, {
-            text: "غير مصرح 🚫",
-            show_alert: true
-        });
-    }
-
-    userState[userId] = query.data;
-    bot.sendMessage(userId, "أرسل المحتوى الآن:");
-    bot.answerCallbackQuery(query.id);
-});
-
-bot.on("message", async (msg) => {
-
-    const userId = msg.from.id;
-    if (userId !== ADMIN_ID) return;
-
-    const state = userState[userId];
-    if (!state) return;
-
-    // حفظ المحتوى
-    if (state !== "awaiting_buttons") {
-        tempPost[userId] = {
-            type: state,
-            text: msg.text,
-            caption: msg.caption,
-            photo: msg.photo,
-            video: msg.video,
-            document: msg.document
-        };
-
-        userState[userId] = "awaiting_buttons";
-
-        return bot.sendMessage(userId,
-`هل تريد إضافة أزرار؟
-
-اكتب كل زر بهذا الشكل:
-اسم الزر - الرابط
-
-مثال:
-موقعنا - https://example.com
-واتساب - https://wa.me/966XXXXXXXXX
-
-أو اكتب: بدون`
-        );
-    }
-
-    // مرحلة إنشاء الأزرار
-    let buttons = null;
-
-    if (msg.text.toLowerCase() !== "بدون") {
-
-        const lines = msg.text.split("\n");
-        const keyboard = [];
-
-        for (let line of lines) {
-            const parts = line.split("-");
-            if (parts.length < 2) continue;
-
-            keyboard.push([{
-                text: parts[0].trim(),
-                url: parts[1].trim()
-            }]);
-        }
-
-        if (keyboard.length > 0) {
-            buttons = {
-                reply_markup: {
-                    inline_keyboard: keyboard
-                }
-            };
-        }
-    }
-
-    const post = tempPost[userId];
-
-    try {
-
-        if (post.type === "text" && post.text) {
-            await bot.sendMessage(channel, post.text, buttons || {});
-        }
-
-        if (post.type === "photo" && post.photo) {
-            const fileId = post.photo[post.photo.length - 1].file_id;
-            await bot.sendPhoto(channel, fileId, {
-                caption: post.caption || "",
-                ...(buttons || {})
-            });
-        }
-
-        if (post.type === "video" && post.video) {
-            await bot.sendVideo(channel, post.video.file_id, {
-                caption: post.caption || "",
-                ...(buttons || {})
-            });
-        }
-
-        if (post.type === "pdf" && post.document) {
-            await bot.sendDocument(channel, post.document.file_id, buttons || {});
-        }
-
-        await bot.sendMessage(userId, "✅ تم النشر بنجاح");
-    } catch (err) {
-        console.error(err);
-        await bot.sendMessage(userId, "❌ حدث خطأ أثناء النشر");
-    }
-
-    delete userState[userId];
-    delete tempPost[userId];
+app.listen(PORT, () => {
+  console.log("Bot is running on webhook mode 🚀");
 });
