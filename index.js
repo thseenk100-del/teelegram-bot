@@ -5,13 +5,8 @@ const TelegramBot = require("node-telegram-bot-api");
 const token = process.env.BOT_TOKEN;
 const domain = process.env.APP_DOMAIN;
 
-if (!token) {
-  console.error("BOT_TOKEN غير موجود");
-  process.exit(1);
-}
-
-if (!domain) {
-  console.error("APP_DOMAIN غير موجود");
+if (!token || !domain) {
+  console.error("❌ BOT_TOKEN أو APP_DOMAIN غير موجود");
   process.exit(1);
 }
 
@@ -19,16 +14,19 @@ const app = express();
 app.use(express.json());
 
 const bot = new TelegramBot(token);
-
 const PORT = process.env.PORT || 8080;
 
-/* ========= Webhook Endpoint ========= */
-app.post(`/bot${token}`, (req, res) => {
+/* =======================
+   Webhook Endpoint
+======================= */
+app.post("/webhook", (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-/* ========= القائمة الرئيسية ========= */
+/* =======================
+   أوامر البداية
+======================= */
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id, "اختر من القائمة 👇", {
     reply_markup: {
@@ -36,17 +34,20 @@ bot.onText(/\/start/, (msg) => {
         [{ text: "📷 نشر صورة", callback_data: "photo" }],
         [{ text: "📄 نشر PDF", callback_data: "pdf" }],
         [{ text: "🎬 نشر فيديو", callback_data: "video" }],
-        [{ text: "🔗 أزرار ديناميكية", callback_data: "buttons" }]
+        [{ text: "🔗 أزرار", callback_data: "buttons" }]
       ]
     }
   });
 });
 
-/* ========= الأزرار ========= */
+/* =======================
+   التعامل مع الأزرار
+======================= */
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
 
   try {
+
     if (query.data === "photo") {
       await bot.sendPhoto(
         chatId,
@@ -55,7 +56,7 @@ bot.on("callback_query", async (query) => {
           caption: "هذه صورة مع نص 👌",
           reply_markup: {
             inline_keyboard: [
-              [{ text: "زيارة الموقع", url: "https://google.com" }]
+              [{ text: "زيارة Google", url: "https://google.com" }]
             ]
           }
         }
@@ -66,9 +67,7 @@ bot.on("callback_query", async (query) => {
       await bot.sendDocument(
         chatId,
         "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-        {
-          caption: "هذا ملف PDF 📄"
-        }
+        { caption: "هذا ملف PDF 📄" }
       );
     }
 
@@ -88,7 +87,7 @@ bot.on("callback_query", async (query) => {
     }
 
     if (query.data === "buttons") {
-      await bot.sendMessage(chatId, "مثال أزرار بروابط:", {
+      await bot.sendMessage(chatId, "مثال أزرار:", {
         reply_markup: {
           inline_keyboard: [
             [
@@ -101,22 +100,25 @@ bot.on("callback_query", async (query) => {
     }
 
     await bot.answerCallbackQuery(query.id);
-  } catch (err) {
-    console.error("خطأ:", err.message);
+
+  } catch (error) {
+    console.error("خطأ:", error.message);
   }
 });
 
-/* ========= تشغيل السيرفر وضبط Webhook ========= */
+/* =======================
+   تشغيل السيرفر وضبط Webhook
+======================= */
 app.listen(PORT, async () => {
-  console.log(`السيرفر يعمل على المنفذ ${PORT}`);
+  console.log(`🚀 السيرفر يعمل على المنفذ ${PORT}`);
 
-  const webhookUrl = `https://${domain}/bot${token}`;
+  const webhookUrl = `https://${domain}/webhook`;
 
   try {
     await bot.deleteWebHook();
     await bot.setWebHook(webhookUrl);
-    console.log("Webhook تم ضبطه بنجاح");
+    console.log("✅ تم ضبط Webhook بنجاح");
   } catch (error) {
-    console.error("فشل ضبط Webhook:", error.message);
+    console.error("❌ فشل ضبط Webhook:", error.response?.body || error.message);
   }
 });
